@@ -22,6 +22,7 @@ let set_local_flags flags env =
     conv_oracle = flags.conv_oracle;
     share_reduction = flags.share_reduction;
     unfold_dep_heuristic = flags.unfold_dep_heuristic;
+    strategy_lvl_on_definition = flags.strategy_lvl_on_definition;
     allow_uip = flags.allow_uip;
     (* These flags may not *)
     enable_VM = envflags.enable_VM;
