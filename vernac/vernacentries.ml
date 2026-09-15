@@ -1951,9 +1951,9 @@ let () =
   declare_bool_option
     { optstage = Summary.Stage.Interp;
       optdepr  = None;
-      optkey   = ["Kernel"; "Conversion"; "Strategy"; "Heuristic"];
-      optread  = (fun () -> (Global.typing_flags ()).Declarations.strategy_lvl_on_definition);
-      optwrite = Global.set_strategy_lvl_on_definition }
+      optkey   = ["Kernel"; "Conversion"; "Height"; "Heuristic"];
+      optread  = (fun () -> (Global.typing_flags ()).Declarations.unfold_height_heuristic);
+      optwrite = Global.set_unfold_height_heuristic }
 
 let () =
   declare_int_option

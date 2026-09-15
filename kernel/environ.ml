@@ -695,7 +695,7 @@ let same_flags {
      indices_matter;
      share_reduction;
      unfold_dep_heuristic;
-     strategy_lvl_on_definition;
+     unfold_height_heuristic;
      enable_VM;
      enable_native_compiler;
      impredicative_set;
@@ -710,7 +710,7 @@ let same_flags {
   indices_matter == alt.indices_matter &&
   share_reduction == alt.share_reduction &&
   unfold_dep_heuristic == alt.unfold_dep_heuristic &&
-  strategy_lvl_on_definition == alt.strategy_lvl_on_definition &&
+  unfold_height_heuristic == alt.unfold_height_heuristic &&
   enable_VM == alt.enable_VM &&
   enable_native_compiler == alt.enable_native_compiler &&
   impredicative_set == alt.impredicative_set &&

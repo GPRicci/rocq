@@ -118,6 +118,29 @@ let interp_statement ~program_mode env evd ~(flags : Pretyping.inference_flags) 
   let ids = List.map Context.Rel.Declaration.get_name ctx in
   evd, ids, EConstr.it_mkProd_or_LetIn t' ctx, imps @ imps'
 
+(* REMOVE *)
+let debug = CDebug.create ~name:"comDefinition" ()
+
+(* RELOCATE*)
+let rec constant_definitional_height (env : Environ.env) kn =
+  match (Environ.lookup_constant kn env).const_body with
+  | Declarations.Def c ->
+    let rec height acc c = match Constr.kind c with
+      | Constr.Const (kn, _) -> max acc (constant_definitional_height env kn)
+      | _ -> Constr.fold height acc c
+    in
+    1 + height 0 c
+  | Declarations.(Undef _ | OpaqueDef _ | Primitive _ | Symbol _) -> 0
+
+(* This is a simplification of Vernacentries.vernac_set_strategy
+   Check if this is ok or if it's a bad idea. *)
+let set_constant_strategy_lvl lvl c =
+  let ceval = match Structures.PrimitiveProjections.find_opt c with
+  | None -> Evaluable.EvalConstRef c
+  | Some p -> Evaluable.EvalProjectionRef p
+  in
+  Redexpr.set_strategy false [(lvl, [ceval])]
+
 let do_definition ?loc ?hook ~name ?scope ?clearbody ~poly ?typing_flags ~kind ?using ?user_warns udecl bl red_option c ctypopt =
   let program_mode = false in
   let env = Global.env() in
@@ -130,9 +153,25 @@ let do_definition ?loc ?hook ~name ?scope ?clearbody ~poly ?typing_flags ~kind ?
   let kind = Decls.IsDefinition kind in
   let cinfo = Declare.CInfo.make ?loc ~name ~impargs ~typ:types () in
   let info = Declare.Info.make ?scope ?clearbody ~kind ?hook ~udecl ~poly ?typing_flags ?user_warns () in
-  let _ : Names.GlobRef.t =
+  let gref : Names.GlobRef.t =
     Declare.declare_definition ~info ~cinfo ~opaque:false ~body ?using evd
-  in ()
+  in
+  if (Global.typing_flags ()).unfold_height_heuristic then
+    let open Names.GlobRef in
+      (match gref with
+      | ConstRef c -> 
+        let def_height_c = constant_definitional_height (Global.env ()) c in
+        let _ = set_constant_strategy_lvl (Conv_oracle.Level (-def_height_c)) c in
+        debug (fun () ->
+          Pp.str "Definition declared: " ++ 
+          Names.GlobRef.print gref ++ 
+          Pp.str ", definitional height: " ++ 
+          Pp.int def_height_c ++
+          Pp.str ", strat. lvl. set to -" ++
+          Pp.int def_height_c)
+      | _ -> ())
+  else ()
+  
 
 let do_definition_program ?loc ?hook ~pm ~name ~scope ?clearbody ~poly ?typing_flags ~kind ?using ?user_warns udecl bl red_option c ctypopt =
   let env = Global.env() in

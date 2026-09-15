@@ -194,7 +194,7 @@ val set_share_reduction : bool -> unit
 
 val set_unfold_dep_heuristic : bool -> unit
 
-val set_strategy_lvl_on_definition : bool -> unit
+val set_unfold_height_heuristic : bool -> unit
 
 val set_VM : bool -> unit
 val set_native_compiler : bool -> unit

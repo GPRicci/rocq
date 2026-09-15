@@ -89,9 +89,10 @@ type typing_flags = {
   unfold_dep_heuristic : bool;
   (** If [true], use dependency heuristic when unfolding constants during conversion *)
   
-  strategy_lvl_on_definition : bool;
-  (** If [true], a strategy level is assigned to each defined constant. 
-      The level is [-h] where [h] is the height of the defined term's height. *)
+  unfold_height_heuristic : bool;
+  (** If [true], use definitional height heuristic when unfolding constants during conversion.
+      A strategy level is assigned to each constant when it's defined. 
+      The level is [-h] where [h] is the definitional height of the constant. *)
 
   enable_VM : bool;
   (** If [false], all VM conversions fall back to interpreted ones *)
