@@ -148,12 +148,20 @@ type conv_pb =
   | CONV
   | CUMUL
 
+type 'a universe_acc = {
+  acc_empty : 'a;
+  acc: 'a;
+  acc_union : 'a -> 'a -> 'a;
+  acc_is_empty : 'a -> bool;
+}
+
 type ('a, 'err) universe_compare = {
   compare_sorts : conv_pb -> Sorts.t -> Sorts.t -> 'a -> ('a, 'err option) result;
   compare_instances: flex:bool -> UVars.Instance.t -> UVars.Instance.t -> 'a -> ('a, 'err option) result;
   compare_cumul_instances : conv_pb -> UVars.Variance.t array ->
     UVars.Instance.t -> UVars.Instance.t -> 'a -> ('a, 'err option) result;
   compare_irrelevant : bool;
+  compare_acc : 'a universe_acc option;
 }
 
 type ('a, 'err) universe_state = 'a * ('a, 'err) universe_compare
@@ -162,6 +170,11 @@ type ('a, 'err) generic_conversion_function = ('a, 'err) universe_state -> const
 
 let sort_cmp_universes pb s0 s1 (u, check) =
   (check.compare_sorts pb s0 s1 u, check)
+
+let cuniv_has_acc_constraints check =
+  match check.compare_acc with
+  | None -> false
+  | Some cacc -> cacc.acc_is_empty cacc.acc
 
 (* [flex] should be true for constants, false for inductive types and
    constructors. *)
@@ -333,7 +346,7 @@ let clos_memo_mode = (* 0 = off, 1 = stats only, 2 = active (default) *)
   | "stats" -> 1
   | "0" -> 0
   | _ -> 2
-  | exception Not_found -> 2
+  | exception Not_found -> 0
 
 let clos_memo_print_stats =
   match Sys.getenv "ROCQ_CLOS_MEMO_STATS" with
@@ -354,10 +367,30 @@ let () =
         !clos_memo_probes !clos_memo_full_hits !clos_memo_body_hits
         !clos_memo_inserts)
 
+let cuniv_acc_stats =
+  match  Sys.getenv "ROCQ_CUNIV_ACC_STATS" with
+  | "0" -> false
+  | _ -> true
+  | exception Not_found -> true
+
+(* Conversion successes that add constraints : ignored *)
+let cuniv_acc_ignored_successes = ref 0
+let cuniv_acc_ignored_success_hits = ref 0
+let cuniv_acc_cached_successes = ref 0
+let cuniv_acc_cached_failures = ref 0
+
+let () =
+  if cuniv_acc_stats then
+    at_exit (fun () ->
+      Printf.eprintf
+      "[cuniv-acc] Ignored successes (add constraints) %d | Hits on ignored successes %d | Cached successes %d | Cached failures %d"
+      !cuniv_acc_ignored_successes !cuniv_acc_ignored_success_hits !cuniv_acc_cached_successes !cuniv_acc_cached_failures)
+
+
 type conv_cache = {
   (* cc_key.(i) = (fid1 lsl 31) lor fid2; 0 = empty slot *)
   mutable cc_key : int array;
-  (* cc_meta.(i) = (lid1 lsl 18) lor (lid2 lsl 3) lor (pb lsl 1) lor result *)
+  (* cc_meta.(i) = (lid1 lsl 18) lor (lid2 lsl 3) lor (cnstrs lsl 2) (pb lsl 1) lor result *)
   mutable cc_meta : int array;
   mutable cc_cnt : int;
   cc_lifts : int LiftTbl.t;
@@ -386,8 +419,15 @@ let cc_mix pk m =
   let h = h * 0x3F58476D1CE4E5B9 in
   h lxor (h lsr 32)
 
-(* -1 = absent, 0 = cached failure, 1 = cached success.
-   [meta0] must have the result bit clear. *)
+(*  Probe results are computed by masking out all [meta] bits except bits 0 (result)
+    and 2 (constraints).
+    -1 = absent, 
+    0 = cached failure,
+    1 = cached success,
+    4 = impossible, since a failure doesn't add constraints (should be caught!)
+    5 = success that adds constraints during unification (for stats only!,
+    this is treated as a cache miss for now)
+   [meta0] must have the result and constraints bits clear. *)
 let cc_find cache pk meta0 =
   if pk lsr 31 > cache.max_uid || pk land 0x7fffffff > cache.max_uid then -1
   else
@@ -396,8 +436,8 @@ let cc_find cache pk meta0 =
     let k = Array.unsafe_get cache.cc_key i in
     if k == 0 then -1
     else if k == pk
-         && (Array.unsafe_get cache.cc_meta i) lor 1 == meta0 lor 1 then
-      (Array.unsafe_get cache.cc_meta i) land 1
+         && (Array.unsafe_get cache.cc_meta i) lor 5 == meta0 lor 5 then
+      (Array.unsafe_get cache.cc_meta i) land 5
     else go ((i + 1) land mask)
   in
   go ((cc_mix pk meta0) land mask)
@@ -704,7 +744,9 @@ let rec ccnv ~cache:docache cv_pb l2r infos lft1 lft2 term1 term2 cuniv =
         match (if usefid then cc_find cache pk meta0 else -1) with
         | 1 -> cuniv
         | 0 -> raise NotConvertible
-        | _ ->
+        | 4 -> anomaly (Pp.str "Cached conversion failure cannot add constraints.")
+        | r ->
+          let () = if r == 5 then incr cuniv_acc_ignored_success_hits in 
           let add r =
             if usefid then begin
               let maxid = if fid1 > fid2 then fid1 else fid2 in
@@ -757,6 +799,7 @@ let rec ccnv ~cache:docache cv_pb l2r infos lft1 lft2 term1 term2 cuniv =
             add cached;
             if cached = 1 then cuniv else raise NotConvertible
           end else begin
+            (* TODO: Add cuniv_acc stats to 2nd level *)
             let addc r = match ckey with
               | Some (cp, k) when cached < 0 ->
                 if ClosPairTbl.add cp.cp_full k r then incr clos_memo_inserts
@@ -764,8 +807,10 @@ let rec ccnv ~cache:docache cv_pb l2r infos lft1 lft2 term1 term2 cuniv =
             in
             (* NOTE: a post-whd second cache probe on the reduced bare states
                was tried here and measured useless (2 hits in 13.2M probes). *)
+            
             match eqappr cv_pb l2r infos (lft1, (term1,[])) (lft2, (term2,[])) cuniv with
-            | cuniv -> add 1; addc 1; cuniv
+            | cuniv ->  
+              add 1; addc 1; cuniv
             | exception NotConvertible -> add 0; addc 0; raise NotConvertible
           end
       end
@@ -1422,7 +1467,8 @@ let checked_universes_gen irr qeq =
   { compare_sorts = checked_sort_cmp_universes qeq;
     compare_instances = check_convert_instances qeq;
     compare_cumul_instances = check_inductive_instances qeq;
-    compare_irrelevant = irr }
+    compare_irrelevant = irr;
+    compare_acc = None }
 
 let checked_universes = checked_universes_gen true Sorts.Quality.equal
 

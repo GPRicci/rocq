@@ -22,6 +22,13 @@ type 'a extended_conversion_function =
 
 type conv_pb = CONV | CUMUL
 
+type 'a universe_acc = {
+  acc_empty : 'a;
+  acc : 'a;
+  acc_union : 'a -> 'a -> 'a;
+  acc_is_empty : 'a -> bool;
+}
+
 type ('a, 'err) universe_compare = {
   compare_sorts : conv_pb -> Sorts.t -> Sorts.t -> 'a -> ('a, 'err option) result;
   compare_instances: flex:bool -> UVars.Instance.t -> UVars.Instance.t -> 'a -> ('a, 'err option) result;
@@ -30,6 +37,9 @@ type ('a, 'err) universe_compare = {
   compare_irrelevant : bool;
   (** If true, the above functions must be irrelevant on their 'a argument,
       i.e. they must return the same constructor regardless of that value. *)
+  compare_acc : 'a universe_acc option;
+  (** Keeps track of the constraints needed by a conversion problem in
+      unification mode. *)
 }
 
 type ('a, 'err) universe_state = 'a * ('a, 'err) universe_compare

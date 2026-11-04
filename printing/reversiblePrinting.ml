@@ -168,7 +168,7 @@ let modulo_universes_compare =
   in
   { compare_sorts; compare_instances; compare_cumul_instances;
     (* The unit-state callbacks do not accumulate universe constraints. *)
-    compare_irrelevant = true }
+    compare_irrelevant = true; compare_acc = None }
 
 (* No [eq_constr_nounivs] fast-path here: it would treat sorts of
    different qualities as equal, defeating the sort-sensitivity we want. *)
